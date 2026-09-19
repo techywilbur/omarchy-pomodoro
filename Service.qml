@@ -37,8 +37,18 @@ Item {
   readonly property string stateReaderPath: sourceDir ? sourceDir + "/pomo-state-read" : ""
 
   // ---- configuration (inline on the widget's bar entry; hot-reloaded by the shell)
-  readonly property var entry: Pomo.findEntry(shell ? shell.shellConfig : null, pluginId)
+  // BarWidget calls updateConfigEntry() whenever the host injects new inline
+  // settings. That keeps the long-lived service in sync with right-click
+  // changes made from the popup, even when the scoped shell API's barConfig
+  // snapshot has not refreshed yet.
+  property var entryOverride: null
+  readonly property var entry: entryOverride || Pomo.findEntry(shell ? shell.shellConfig : null, pluginId)
   readonly property var config: Pomo.config(entry)
+
+  function updateConfigEntry(entry) {
+    if (!entry || entry.id !== pluginId) return
+    entryOverride = JSON.parse(JSON.stringify(entry))
+  }
 
   // ---- state
   property string phase: "idle"        // idle | focus | short | long | ready

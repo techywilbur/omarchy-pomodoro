@@ -58,13 +58,27 @@ BarWidget {
   function close() { popupOpen = false }
   function togglePanel() { popupOpen = !popupOpen }
 
-  function writeSetting(name, value) {
+  function currentSettingsEntry() {
     var entry = { id: root.moduleName }
     for (var key in root.settings) if (key !== "id") entry[key] = root.settings[key]
+    return entry
+  }
+
+  function syncSettingsToService() {
+    if (root.ready && typeof root.pomo.updateConfigEntry === "function")
+      root.pomo.updateConfigEntry(root.currentSettingsEntry())
+  }
+
+  onSettingsChanged: syncSettingsToService()
+  Component.onCompleted: Qt.callLater(syncSettingsToService)
+
+  function writeSetting(name, value) {
+    var entry = root.currentSettingsEntry()
     entry[name] = value
     root.settings = entry
     if (root.bar && root.bar.shell && typeof root.bar.shell.updateEntryInline === "function")
       root.bar.shell.updateEntryInline(root.moduleName, entry)
+    syncSettingsToService()
   }
 
   implicitWidth: button.implicitWidth
