@@ -37,7 +37,9 @@ Item {
   readonly property string stateReaderPath: sourceDir ? sourceDir + "/pomo-state-read" : ""
 
   // ---- configuration (inline on the widget's bar entry; hot-reloaded by the shell)
-  readonly property var entry: Pomo.findEntry(shell ? shell.shellConfig : null, pluginId)
+  // Third-party plugins receive the scoped PluginShellApi, which exposes the
+  // bar configuration as `barConfig` rather than the full `shellConfig`.
+  readonly property var entry: Pomo.findEntry(shell && shell.barConfig ? { bar: shell.barConfig } : null, pluginId)
   readonly property var config: Pomo.config(entry)
 
   // ---- state
