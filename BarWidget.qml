@@ -35,6 +35,11 @@ BarWidget {
   readonly property color accent: Color.accent
   readonly property color fg: bar ? bar.foreground : Color.foreground
   readonly property bool focusRunning: phase === "focus" && running
+  readonly property real selectedFocusMinutes: {
+    if (phase === "focus" && ready) return pomo.plannedMs / 60000
+    if (phase === "idle" || phase === "ready") return cfg.focus
+    return -1
+  }
 
   readonly property string barText: {
     if (!ready) return "󰔛"
@@ -58,13 +63,28 @@ BarWidget {
   function close() { popupOpen = false }
   function togglePanel() { popupOpen = !popupOpen }
 
-  function writeSetting(name, value) {
+  function currentSettingsEntry() {
     var entry = { id: root.moduleName }
     for (var key in root.settings) if (key !== "id") entry[key] = root.settings[key]
+    return entry
+  }
+
+  function syncSettingsToService() {
+    if (root.ready && typeof root.pomo.updateConfigEntry === "function")
+      root.pomo.updateConfigEntry(root.currentSettingsEntry())
+  }
+
+  onSettingsChanged: syncSettingsToService()
+  onPomoChanged: syncSettingsToService()
+  Component.onCompleted: Qt.callLater(syncSettingsToService)
+
+  function writeSetting(name, value) {
+    var entry = root.currentSettingsEntry()
     entry[name] = value
     root.settings = entry
     if (root.bar && root.bar.shell && typeof root.bar.shell.updateEntryInline === "function")
       root.bar.shell.updateEntryInline(root.moduleName, entry)
+    root.syncSettingsToService()
   }
 
   implicitWidth: button.implicitWidth
@@ -127,207 +147,221 @@ BarWidget {
     contentWidth: popup.fittedContentWidth(Style.space(312))
     contentHeight: popup.fittedContentHeight(column.implicitHeight)
 
-    Column {
-      id: column
+    Flickable {
       anchors.fill: parent
-      spacing: Style.space(10)
+      contentWidth: width
+      contentHeight: column.implicitHeight
+      clip: true
+      flickableDirection: Flickable.VerticalFlick
+      boundsBehavior: Flickable.StopAtBounds
 
-      // ---- header: phase + session dots
-      Item {
+      Column {
+        id: column
         width: parent.width
-        height: headerLabel.implicitHeight
+        spacing: Style.space(10)
 
-        Text {
-          id: headerLabel
-          anchors.left: parent.left
-          anchors.verticalCenter: parent.verticalCenter
-          text: root.phaseLabel.toUpperCase()
-          color: root.phase === "focus" ? root.accent : root.fg
-          font.family: root.bar.fontFamily
-          font.pixelSize: Style.font.caption
-          font.bold: true
-          font.letterSpacing: 2
-        }
+        // ---- header: phase + session dots
+        Item {
+          width: parent.width
+          height: headerLabel.implicitHeight
 
-        Row {
-          anchors.right: parent.right
-          anchors.verticalCenter: parent.verticalCenter
-          spacing: Style.space(5)
-          Repeater {
-            model: root.dots
-            Rectangle {
-              required property string modelData
-              width: Style.space(8)
-              height: width
-              radius: width / 2
-              color: modelData === "done" ? root.accent
-                   : modelData === "current" ? Util.alpha(root.accent, 0.35)
-                   : Util.alpha(root.fg, 0.14)
-              border.width: modelData === "current" ? 1 : 0
-              border.color: root.accent
+          Text {
+            id: headerLabel
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            text: root.phaseLabel.toUpperCase()
+            color: root.phase === "focus" ? root.accent : root.fg
+            font.family: root.bar.fontFamily
+            font.pixelSize: Style.font.caption
+            font.bold: true
+            font.letterSpacing: 2
+          }
+
+          Row {
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: Style.space(5)
+            Repeater {
+              model: root.dots
+              Rectangle {
+                required property string modelData
+                width: Style.space(8)
+                height: width
+                radius: width / 2
+                color: modelData === "done" ? root.accent
+                     : modelData === "current" ? Util.alpha(root.accent, 0.35)
+                     : Util.alpha(root.fg, 0.14)
+                border.width: modelData === "current" ? 1 : 0
+                border.color: root.accent
+              }
             }
           }
         }
-      }
 
-      // ---- the clock
-      Text {
-        width: parent.width
-        horizontalAlignment: Text.AlignHCenter
-        text: root.phase === "idle" ? Pomo.mmss(root.cfg.focus * 60000)
-            : root.phase === "ready" ? "--:--"
-            : root.clock
-        color: root.paused ? Util.alpha(root.fg, 0.55) : root.fg
-        font.family: root.bar.fontFamily
-        font.pixelSize: Math.round(Style.font.displayLarge * 1.7)
-        font.bold: true
-      }
+        // ---- the clock
+        Text {
+          width: parent.width
+          horizontalAlignment: Text.AlignHCenter
+          text: root.phase === "idle" ? Pomo.mmss(root.cfg.focus * 60000)
+              : root.phase === "ready" ? "--:--"
+              : root.clock
+          color: root.paused ? Util.alpha(root.fg, 0.55) : root.fg
+          font.family: root.bar.fontFamily
+          font.pixelSize: Math.round(Style.font.displayLarge * 1.7)
+          font.bold: true
+        }
 
-      Rectangle {
-        width: parent.width
-        height: Math.max(2, Style.space(3))
-        radius: height / 2
-        color: Util.alpha(root.fg, 0.12)
         Rectangle {
-          height: parent.height
-          radius: parent.radius
-          width: parent.width * (root.active ? root.progress : (root.phase === "ready" ? 1 : 0))
-          color: root.phase === "focus" ? root.accent : root.fg
-          Behavior on width { NumberAnimation { duration: 400; easing.type: Easing.OutCubic } }
+          width: parent.width
+          height: Math.max(2, Style.space(3))
+          radius: height / 2
+          color: Util.alpha(root.fg, 0.12)
+          Rectangle {
+            height: parent.height
+            radius: parent.radius
+            width: parent.width * (root.active ? root.progress : (root.phase === "ready" ? 1 : 0))
+            color: root.phase === "focus" ? root.accent : root.fg
+            Behavior on width { NumberAnimation { duration: 400; easing.type: Easing.OutCubic } }
+          }
         }
-      }
 
-      // ---- transport
-      Row {
-        anchors.horizontalCenter: parent.horizontalCenter
-        spacing: Style.space(6)
+        // ---- transport
+        Row {
+          anchors.horizontalCenter: parent.horizontalCenter
+          spacing: Style.space(6)
 
-        Button {
-          iconText: root.running ? "󰏤" : "󰐊"
-          text: root.phase === "idle" ? "Start" : root.phase === "ready" ? "Continue" : root.running ? "Pause" : "Resume"
-          foreground: root.fg
-          accent: root.accent
-          bordered: true
-          selected: root.running
-          onClicked: if (root.ready) root.pomo.toggle()
-        }
-        Button {
-          iconText: "󰒭"
-          tooltipText: "Skip this block"
-          foreground: root.fg
-          accent: root.accent
-          bordered: true
-          enabled: root.active || root.phase === "ready"
-          opacity: enabled ? 1 : 0.4
-          onClicked: if (root.ready) root.pomo.skip()
-        }
-        Button {
-          text: "+5"
-          tooltipText: "Add five minutes"
-          foreground: root.fg
-          accent: root.accent
-          bordered: true
-          enabled: root.active
-          opacity: enabled ? 1 : 0.4
-          onClicked: if (root.ready) root.pomo.extend(5)
-        }
-        Button {
-          iconText: "󰓛"
-          tooltipText: "Stop and reset the set"
-          foreground: root.fg
-          accent: root.accent
-          bordered: true
-          enabled: root.phase !== "idle"
-          opacity: enabled ? 1 : 0.4
-          onClicked: if (root.ready) root.pomo.stop()
-        }
-      }
-
-      PanelSeparator { width: parent.width; foreground: root.fg }
-
-      // ---- quick starts
-      PanelSectionHeader { text: "Focus"; foreground: root.fg; fontFamily: root.bar.fontFamily }
-
-      Row {
-        spacing: Style.space(6)
-        Repeater {
-          model: root.cfg.presets
           Button {
-            required property var modelData
-            text: modelData + " min"
+            iconText: root.running ? "󰏤" : "󰐊"
+            text: root.phase === "idle" ? "Start" : root.phase === "ready" ? "Continue" : root.running ? "Pause" : "Resume"
             foreground: root.fg
             accent: root.accent
             bordered: true
-            selected: Number(modelData) === Number(root.cfg.focus)
-            tooltipText: "Start a " + modelData + " min focus block (right-click makes it the default)"
-            onClicked: if (root.ready) root.pomo.startFocus(Number(modelData))
-            onRightClicked: root.writeSetting("focus", Number(modelData))
+            selected: root.running
+            onClicked: if (root.ready) root.pomo.toggle()
+          }
+          Button {
+            iconText: "󰒭"
+            tooltipText: "Skip this block"
+            foreground: root.fg
+            accent: root.accent
+            bordered: true
+            enabled: root.active || root.phase === "ready"
+            opacity: enabled ? 1 : 0.4
+            onClicked: if (root.ready) root.pomo.skip()
+          }
+          Button {
+            text: "+5"
+            tooltipText: "Add five minutes"
+            foreground: root.fg
+            accent: root.accent
+            bordered: true
+            enabled: root.active
+            opacity: enabled ? 1 : 0.4
+            onClicked: if (root.ready) root.pomo.extend(5)
+          }
+          Button {
+            iconText: "󰓛"
+            tooltipText: "Stop and reset the set"
+            foreground: root.fg
+            accent: root.accent
+            bordered: true
+            enabled: root.phase !== "idle"
+            opacity: enabled ? 1 : 0.4
+            onClicked: if (root.ready) root.pomo.stop()
           }
         }
-      }
 
-      PanelSectionHeader { text: "Break"; foreground: root.fg; fontFamily: root.bar.fontFamily }
+        PanelSeparator { width: parent.width; foreground: root.fg }
 
-      Row {
-        spacing: Style.space(6)
-        Button {
-          iconText: "󰅶"
-          text: "Short · " + root.cfg.shortBreak + " min"
+        // ---- quick starts
+        PanelSectionHeader { text: "Focus"; foreground: root.fg; fontFamily: root.bar.fontFamily }
+
+        Flow {
+          objectName: "focusPresets"
+          width: parent.width
+          spacing: Style.space(6)
+          Repeater {
+            model: root.cfg.presets
+            Button {
+              required property var modelData
+              text: modelData + " min"
+              foreground: root.fg
+              accent: root.accent
+              bordered: true
+              selected: Number(modelData) === root.selectedFocusMinutes
+              tooltipText: "Start a " + modelData + " min focus block (right-click sets the default)"
+              onClicked: if (root.ready) root.pomo.startFocus(Number(modelData))
+              onRightClicked: root.writeSetting("focus", Number(modelData))
+            }
+          }
+        }
+
+        PanelSectionHeader { text: "Break"; foreground: root.fg; fontFamily: root.bar.fontFamily }
+
+        Flow {
+          width: parent.width
+          spacing: Style.space(6)
+          Button {
+            iconText: "󰅶"
+            text: "Short · " + root.cfg.shortBreak + " min"
+            foreground: root.fg
+            accent: root.accent
+            bordered: true
+            selected: root.phase === "short"
+            onClicked: if (root.ready) root.pomo.startBreak("short", 0)
+          }
+          Button {
+            iconText: "󰅶"
+            text: "Long · " + root.cfg.longBreak + " min"
+            foreground: root.fg
+            accent: root.accent
+            bordered: true
+            selected: root.phase === "long"
+            onClicked: if (root.ready) root.pomo.startBreak("long", 0)
+          }
+        }
+
+        PanelSeparator { width: parent.width; foreground: root.fg }
+
+        // ---- toggles (persisted inline on this widget's shell.json entry)
+        Toggle {
+          width: parent.width
+          label: "Silence notifications"
+          checked: root.cfg.dnd
           foreground: root.fg
           accent: root.accent
-          bordered: true
-          onClicked: if (root.ready) root.pomo.startBreak("short", 0)
+          fontFamily: root.bar.fontFamily
+          onClicked: root.writeSetting("dnd", !root.cfg.dnd)
         }
-        Button {
-          iconText: "󰅶"
-          text: "Long · " + root.cfg.longBreak + " min"
+        Toggle {
+          width: parent.width
+          label: "Full-screen break"
+          checked: root.cfg.overlay
           foreground: root.fg
           accent: root.accent
-          bordered: true
-          onClicked: if (root.ready) root.pomo.startBreak("long", 0)
+          fontFamily: root.bar.fontFamily
+          onClicked: root.writeSetting("overlay", !root.cfg.overlay)
         }
-      }
+        Toggle {
+          width: parent.width
+          label: "End-of-block chime"
+          checked: root.cfg.sound
+          foreground: root.fg
+          accent: root.accent
+          fontFamily: root.bar.fontFamily
+          onClicked: root.writeSetting("sound", !root.cfg.sound)
+        }
 
-      PanelSeparator { width: parent.width; foreground: root.fg }
+        PanelSeparator { width: parent.width; foreground: root.fg }
 
-      // ---- toggles (persisted inline on this widget's shell.json entry)
-      Toggle {
-        width: parent.width
-        label: "Silence notifications while focusing"
-        checked: root.cfg.dnd
-        foreground: root.fg
-        accent: root.accent
-        fontFamily: root.bar.fontFamily
-        onClicked: root.writeSetting("dnd", !root.cfg.dnd)
-      }
-      Toggle {
-        width: parent.width
-        label: "Full-screen break screen"
-        checked: root.cfg.overlay
-        foreground: root.fg
-        accent: root.accent
-        fontFamily: root.bar.fontFamily
-        onClicked: root.writeSetting("overlay", !root.cfg.overlay)
-      }
-      Toggle {
-        width: parent.width
-        label: "Chime at the end of a block"
-        checked: root.cfg.sound
-        foreground: root.fg
-        accent: root.accent
-        fontFamily: root.bar.fontFamily
-        onClicked: root.writeSetting("sound", !root.cfg.sound)
-      }
-
-      PanelSeparator { width: parent.width; foreground: root.fg }
-
-      Text {
-        width: parent.width
-        text: "Today · " + root.todayCount + (root.todayCount === 1 ? " session · " : " sessions · ") + root.todayMinutes + " min focused"
-        color: Util.alpha(root.fg, 0.6)
-        font.family: root.bar.fontFamily
-        font.pixelSize: Style.font.caption
-        elide: Text.ElideRight
+        Text {
+          width: parent.width
+          text: "Today · " + root.todayCount + (root.todayCount === 1 ? " session · " : " sessions · ") + root.todayMinutes + " min focused"
+          color: Util.alpha(root.fg, 0.6)
+          font.family: root.bar.fontFamily
+          font.pixelSize: Style.font.caption
+          elide: Text.ElideRight
+        }
       }
     }
   }

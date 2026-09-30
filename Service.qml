@@ -30,15 +30,27 @@ Item {
   readonly property string stateDir: Quickshell.env("HOME") + "/.local/state/uni-pomo"
   readonly property string statePath: stateDir + "/state.json"
 
-  // The shell stamps the plugin folder into manifest.__sourceDir; the state
-  // reader ships next to this file.
-  readonly property string sourceDir: manifest && manifest.__sourceDir
-    ? String(manifest.__sourceDir).replace(/^file:\/\//, "").replace(/\/$/, "") : ""
-  readonly property string stateReaderPath: sourceDir ? sourceDir + "/pomo-state-read" : ""
+  // Resolve the bundled helper relative to this component. Current shells
+  // deliberately omit internal source metadata from third-party manifests.
+  readonly property string stateReaderPath: decodeURIComponent(String(Qt.resolvedUrl("pomo-state-read")).replace(/^file:\/\//, ""))
 
   // ---- configuration (inline on the widget's bar entry; hot-reloaded by the shell)
-  readonly property var entry: Pomo.findEntry(shell ? shell.shellConfig : null, pluginId)
+  property var widgetEntry: null
+  readonly property var hostEntry: {
+    if (!shell) return null
+    // Third-party plugins receive a scoped shell facade exposing barConfig.
+    // Older shells provide the full shellConfig instead.
+    if (shell.barConfig !== undefined)
+      return Pomo.findEntry({bar: shell.barConfig}, pluginId)
+    return Pomo.findEntry(shell.shellConfig, pluginId)
+  }
+  readonly property var entry: widgetEntry || hostEntry
   readonly property var config: Pomo.config(entry)
+
+  function updateConfigEntry(value) {
+    if (!value || value.id !== pluginId) return
+    widgetEntry = JSON.parse(JSON.stringify(value))
+  }
 
   // ---- state
   property string phase: "idle"        // idle | focus | short | long | ready
